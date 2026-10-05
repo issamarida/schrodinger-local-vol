@@ -1,0 +1,5 @@
+model,median_calibration_seconds
+adhoc_bs,0.0042
+black_scholes,0.0013
+heston,2.0766
+schrodinger,3.4195
