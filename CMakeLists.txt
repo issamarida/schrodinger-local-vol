@@ -22,6 +22,7 @@ else()
 endif()
 
 option(QP_BUILD_TESTS "Build the C++ unit tests" ${_qp_default_standalone})
+option(QP_BUILD_APPS "Build the command-line tools" ${_qp_default_standalone})
 option(QP_NATIVE "Optimise for the host CPU (-march=native)" OFF)
 
 # ---------------------------------------------------------------------------
@@ -45,6 +46,16 @@ else()
   if(QP_NATIVE)
     target_compile_options(qpcore PUBLIC -march=native)
   endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Command-line tools
+# ---------------------------------------------------------------------------
+if(QP_BUILD_APPS)
+  add_executable(qp_price cpp/apps/qp_price.cpp)
+  target_link_libraries(qp_price PRIVATE qp::core)
+  add_executable(qp_bench cpp/apps/qp_bench.cpp)
+  target_link_libraries(qp_bench PRIVATE qp::core)
 endif()
 
 # ---------------------------------------------------------------------------
