@@ -31,7 +31,8 @@ add_library(qpcore STATIC
   cpp/src/black76.cpp
   cpp/src/tridiagonal.cpp
   cpp/src/effective_vol.cpp
-  cpp/src/schrodinger.cpp)
+  cpp/src/schrodinger.cpp
+  cpp/src/pricer.cpp)
 add_library(qp::core ALIAS qpcore)
 target_include_directories(qpcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include)
 
