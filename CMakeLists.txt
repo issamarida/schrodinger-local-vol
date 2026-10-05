@@ -17,12 +17,15 @@ endif()
 
 if(DEFINED SKBUILD)
   set(_qp_default_standalone OFF)
+  set(_qp_default_python ON)
 else()
   set(_qp_default_standalone ON)
+  set(_qp_default_python OFF)
 endif()
 
 option(QP_BUILD_TESTS "Build the C++ unit tests" ${_qp_default_standalone})
 option(QP_BUILD_APPS "Build the command-line tools" ${_qp_default_standalone})
+option(QP_BUILD_PYTHON "Build the pybind11 extension module" ${_qp_default_python})
 option(QP_NATIVE "Optimise for the host CPU (-march=native)" OFF)
 
 # ---------------------------------------------------------------------------
@@ -74,4 +77,15 @@ if(QP_BUILD_TESTS)
   add_executable(qp_tests cpp/tests/main.cpp ${QP_TEST_SOURCES})
   target_link_libraries(qp_tests PRIVATE qp::core doctest::doctest)
   add_test(NAME qp_tests COMMAND qp_tests)
+endif()
+
+# ---------------------------------------------------------------------------
+# Python extension
+# ---------------------------------------------------------------------------
+if(QP_BUILD_PYTHON)
+  find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+  find_package(pybind11 CONFIG REQUIRED)
+  pybind11_add_module(_qpcore cpp/bindings/module.cpp)
+  target_link_libraries(_qpcore PRIVATE qp::core)
+  install(TARGETS _qpcore DESTINATION qpricing)
 endif()

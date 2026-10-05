@@ -1,0 +1,45 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "quantum-pricing"
+version = "0.1.0"
+description = "Option pricing with an imaginary-time Schrödinger solver, backtested on SPX options"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Issam Arida" }]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "pandas>=2.2",
+    "pyarrow>=16",
+    "matplotlib>=3.9",
+    "QuantLib>=1.35",
+]
+
+[project.scripts]
+qp-backtest = "qpricing.backtest:main"
+qp-report = "qpricing.report:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+wheel.packages = ["python/qpricing"]
+build-dir = "build/{wheel_tag}"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["qpricing.data.QuoteFilter"]
