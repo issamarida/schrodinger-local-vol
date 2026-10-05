@@ -66,3 +66,14 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Market data: licensed for use, not for redistribution (see scripts/fetch_data.sh)
+data/
