@@ -1,0 +1,7 @@
+model,median_calibration_seconds
+adhoc_bs,0.0030
+black_scholes,0.0009
+heston,1.6813
+schrodinger,0.7561
+svi,0.2886
+svi_price,0.5751
