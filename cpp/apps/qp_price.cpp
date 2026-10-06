@@ -4,6 +4,7 @@
 //            --a 0.012 --b 0.45 --rho -0.8 --m 0.02 --s 0.05 \
 //            --strikes 3000,3300,3500,3577,3700,3850 [--states 5]
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -83,10 +84,30 @@ int main(int argc, char** argv) {
         }
 
         if (states > 0) {
-            const auto spec = qp::lowest_states(problem, states);
-            std::printf("\nlowest bound states of H = -1/2 d^2/dy^2 + V(y):\n");
+            // The pricing grid spans +-8 sd of the horizon. On it the lowest eigenstates of a
+            // short-dated well are modes of the Dirichlet box, not of the well, so the spectrum
+            // is computed on a domain 8x wider (same spacing) and checked against one 16x wider.
+            auto wide_spectrum = [&](double factor) {
+                qp::GridSpec g = grid;
+                g.width_sd *= factor;
+                g.n_space = static_cast<int>(grid.n_space * factor);
+                return qp::lowest_states(qp::SchrodingerProblem(p, T, g), states);
+            };
+            const auto spec = wide_spectrum(8.0);
+            const auto check = wide_spectrum(16.0);
+            std::printf("\nlowest bound states of H = -1/2 d^2/dy^2 + V(y), on +-%.0f sd:\n",
+                        8.0 * grid.width_sd);
             for (std::size_t k = 0; k < spec.energies.size(); ++k) {
-                std::printf("  E_%zu = %.6f\n", k, spec.energies[k]);
+                const double drift = std::abs(check.energies[k] - spec.energies[k]) /
+                                     std::max(std::abs(check.energies[k]), 1e-12);
+                std::printf("  E_%zu = %.6f%s\n", k, spec.energies[k],
+                            drift > 0.01 ? "   (not converged: still moves with the domain)" : "");
+            }
+            if (spec.energies.size() > 1) {
+                const double gap_t = (spec.energies[1] - spec.energies[0]) * T;
+                std::printf("T (E_1 - E_0) = %.4g: the eigen-expansion %s at this maturity\n", gap_t,
+                            gap_t > 1.0 ? "converges in a few states"
+                                        : "needs many states; the PDE is what prices");
             }
         }
     } catch (const std::exception& e) {

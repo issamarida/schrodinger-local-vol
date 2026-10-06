@@ -96,6 +96,17 @@ where $b_y < 0$. `cpp/src/spectral.cpp` computes the bound states with Sturm-seq
 inverse iteration. The tests check the harmonic-oscillator levels $E_n = \omega(n+\tfrac12)$ and that
 the expansion reproduces the PDE prices.
 
+**How discrete in practice.** Each wing is its own half-oscillator. With $c_\pm^2 = b(1 \pm \rho)$
+the right and left frequencies are $\omega_\pm = c_\pm^2/4$. Calibrated short-dated SPX smiles sit at
+$\rho \approx -1$, so the put side is a steep wall while the call side is almost flat: on 18 Aug 2022
+(8 days) $b = 39$ and $\rho = -0.988$ give $\omega_- \approx 20$ but $\omega_+ \approx 0.1$ per year.
+The level spacing is set by the soft side: $E_1 - E_0 \approx 0.22$, so $T(E_1 - E_0) \approx 0.005$ at 8 days. The
+expansion would need hundreds of states and the lowest eigenstates computed on the pricing grid
+(±8 sd) are modes of the grid's box, not of the well: their energies fall by 4x each time the box
+doubles. The spectrum only settles on a domain of ±64 to ±128 sd, and for the flattest wells not
+even then. So the PDE does the pricing. The spectral code is exact for confining wells and the
+CLI's `--states` computes the spectrum on a wide domain and says whether the expansion is usable.
+
 ## 5. Numerics
 
 * **Grid.** Uniform in $y$, centred on the drift $b(0)T$, half-width $8\sqrt{T}$ (the $Y$-process
@@ -125,7 +136,9 @@ The model is a diffusion with strictly positive local variance $\sigma^2(x) \ge 
 * **Butterflies.** The density solves a Fokker-Planck equation with a positive diffusion
   coefficient, so it stays non-negative (maximum principle). In the solver $q = e^{B}\psi$ and the
   pricer integrates payoffs against a non-negative discrete density, so the discrete call price is
-  convex in $K$ as well. An implied-vol parameterisation (quadratic, SVI) has no such guarantee:
+  convex in $K$ as well. The solver clips $q$ at zero as a safety net; with the clip removed, 400
+  random calibrated holdout wells produced no negative node at either grid size, so the clip
+  never acts. An implied-vol parameterisation (quadratic, SVI) has no such guarantee:
   Durrleman's condition
   $g(k) = (1 - \tfrac{k w'}{2w})^2 - \tfrac{w'^2}{4}(\tfrac1w + \tfrac14) + \tfrac{w''}{2} \ge 0$
   has to be checked or imposed.
