@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from qpricing.arbitrage import butterfly_stats, market_butterflies
+from qpricing.hedging import black_greeks, frozen_delta, local_vol_delta
 from qpricing.models import SVI, BlackScholes, Schrodinger, Slice, SVIPrice, black76
 
 
@@ -44,3 +45,19 @@ def test_market_butterfly_mixes_puts_and_calls_through_parity():
     assert market_butterflies(g) == {"violation": False, "executable": False}
     g.loc[10, ["bid", "ask", "mid"]] += 5.0   # a body far too rich: sell it, buy the wings
     assert market_butterflies(g)["executable"]
+
+
+def test_deltas():
+    s = _slice()
+    iv = np.full(len(s.strikes), 0.25)
+    delta, _ = black_greeks(s, iv)
+    # central bump of 0.1%: second-order truncation error, ~0.1% of delta
+    np.testing.assert_allclose(frozen_delta(BlackScholes(), np.array([0.25]), s), delta,
+                               rtol=2e-3, atol=1e-6)
+    # A flat local vol has no smile to move: the local-vol and floating deltas coincide.
+    flat = np.array([0.0625, 0.0, 0.0, 0.0, 0.1])
+    m = Schrodinger()
+    np.testing.assert_allclose(local_vol_delta(flat, s, m), frozen_delta(m, flat, s), atol=1e-6)
+    # With a negative skew the local-vol delta is below the sticky-smile delta.
+    skew = np.array([0.02, 1.0, -0.7, 0.0, 0.05])
+    assert np.all(local_vol_delta(skew, s, m) < frozen_delta(m, skew, s) + 1e-9)
