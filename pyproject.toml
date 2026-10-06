@@ -22,6 +22,7 @@ dependencies = [
 [project.scripts]
 qp-backtest = "qpricing.backtest:main"
 qp-report = "qpricing.report:main"
+qp-arbitrage = "qpricing.arbitrage:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
