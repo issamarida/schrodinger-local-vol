@@ -94,6 +94,52 @@ PYBIND11_MODULE(_qpcore, m) {
         "Price one expiry slice. Returns an array aligned with `strikes`.");
 
     m.def(
+        "schrodinger_price_surface",
+        [](const qp::EffectiveVolParams& p, const std::vector<double>& expiries,
+           const std::vector<double>& forwards, const std::vector<double>& dfs,
+           const std::vector<std::vector<double>>& strikes,
+           const std::vector<std::vector<bool>>& is_call, const qp::GridSpec& grid) {
+            std::vector<std::vector<qp::OptionType>> types;
+            for (const auto& c : is_call) types.push_back(to_types(c));
+            std::vector<std::vector<double>> out;
+            {
+                py::gil_scoped_release release;
+                out = qp::schrodinger_price_surface(p, expiries, forwards, dfs, strikes, types,
+                                                    grid);
+            }
+            py::list result;
+            for (const auto& v : out) result.append(as_array(v));
+            return result;
+        },
+        py::arg("params"), py::arg("expiries"), py::arg("forwards"), py::arg("dfs"),
+        py::arg("strikes"), py::arg("is_call"), py::arg("grid") = qp::GridSpec{},
+        "Price several expiries from one forward solve. `expiries` are the (possibly "
+        "time-changed) horizons of the well; returns one price array per expiry.");
+
+    m.def(
+        "schrodinger_price_piecewise",
+        [](const std::vector<qp::EffectiveVolParams>& params, const std::vector<double>& ends,
+           const std::vector<double>& expiries, const std::vector<double>& forwards,
+           const std::vector<double>& dfs, const std::vector<std::vector<double>>& strikes,
+           const std::vector<std::vector<bool>>& is_call, const qp::GridSpec& grid) {
+            std::vector<std::vector<qp::OptionType>> types;
+            for (const auto& c : is_call) types.push_back(to_types(c));
+            std::vector<std::vector<double>> out;
+            {
+                py::gil_scoped_release release;
+                out = qp::schrodinger_price_piecewise(params, ends, expiries, forwards, dfs,
+                                                      strikes, types, grid);
+            }
+            py::list result;
+            for (const auto& v : out) result.append(as_array(v));
+            return result;
+        },
+        py::arg("params"), py::arg("ends"), py::arg("expiries"), py::arg("forwards"),
+        py::arg("dfs"), py::arg("strikes"), py::arg("is_call"), py::arg("grid") = qp::GridSpec{},
+        "Price several expiries under a time-dependent well: params[j] applies on "
+        "(ends[j-1], ends[j]].");
+
+    m.def(
         "solve",
         [](const qp::EffectiveVolParams& p, double T, const qp::GridSpec& grid, int n_states) {
             const qp::SchrodingerProblem problem(p, T, grid);
