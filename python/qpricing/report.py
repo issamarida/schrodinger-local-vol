@@ -210,12 +210,12 @@ def fig_mae_by_regime(summary: pd.DataFrame, path: Path, period: str = "2022H2")
                yerr=err, error_kw={"ecolor": INK_2, "elinewidth": 1, "capsize": 2})
     ax.set_xticks(x, [f"{r} vol" for r in REGIMES], color=INK)
     ax.set_ylabel("Mean absolute error (index points)", color=INK_2, fontsize=9)
-    ax.set_yscale("log")
-    ax.set_title("Next-day pricing error, short-dated OTM SPX options "
+    ax.set_title("Next-day pricing error with the ATM vol re-marked, short-dated OTM SPX "
                  + ("(holdout Sep-Dec 2022)" if period == "2022H2" else f"({period})"),
+                 pad=42,
                  color=INK, fontsize=11, loc="left")
-    ax.legend(frameon=False, fontsize=8, labelcolor=INK, ncols=3, loc="upper left")
-    ax.set_ylim(top=ax.get_ylim()[1] * 2.5)
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, ncols=3, loc="lower left",
+              bbox_to_anchor=(0.0, 1.0))
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)
@@ -242,47 +242,53 @@ def fig_regimes(regimes: pd.DataFrame, path: Path, period: str = "2022H2") -> No
 
 
 def fig_potential_wells(params: pd.DataFrame, regimes: pd.DataFrame, path: Path) -> None:
-    """The calibrated quantum potential and its lowest bound states, one slice per regime."""
+    """The calibrated quantum potential and the particle's density at expiry, one per regime.
+
+    No eigenstates: on a short horizon the call-side wall is so shallow that the spectrum is
+    packed far tighter than 1/T, and the lowest states on the pricing grid would be modes of the
+    grid's box rather than of the well (see docs/theory.md, section 4).
+    """
     finite = params["params"].map(lambda v: bool(np.all(np.isfinite(v))))
     p = params[(params.model == "schrodinger") & finite]
     p = p.join(regimes["regime"], on="calib_date")
-    fig, axes = plt.subplots(1, 3, figsize=(10, 3.6), facecolor=SURFACE, sharey=False)
-    for ax, regime in zip(axes, REGIMES, strict=True):
-        _style(ax)
-        ax.grid(False)
+    fig, axes = plt.subplots(2, 3, figsize=(10, 4.8), facecolor=SURFACE, sharex="col",
+                             gridspec_kw={"height_ratios": [3, 2]})
+    for col, regime in enumerate(REGIMES):
+        top_ax, bot_ax = axes[0, col], axes[1, col]
+        for ax in (top_ax, bot_ax):
+            _style(ax)
+            ax.grid(False)
         cand = p[(p.regime == regime) & p.days.between(8, 10)]
         # the slice whose ATM vol level is the median of its regime: a typical well
         lvl = cand["params"].map(lambda v: v[0])
         row = cand.iloc[int(np.argsort(lvl.to_numpy())[len(lvl) // 2])]
         T = row.days / 365
         sol = _qpcore.solve(Schrodinger.to_params(np.array(row["params"])), T,
-                            _qpcore.GridSpec(1200, 200), 4)
-        y, V = np.asarray(sol["y"]), np.asarray(sol["potential"])
-        E = np.asarray(sol["energies"])
-        # Plot where the particle actually lives: +-4 sd of the unit-diffusion Y-process.
-        centre = y[np.argmax(np.abs(np.asarray(sol["states"][0])))]
-        window = np.abs(y - centre) < 4.0 * np.sqrt(T)
-        top = 2.2 * E[2]
-        bottom = -0.6 * top
-        ax.plot(y[window], np.clip(V[window], bottom, None), color=INK, linewidth=1.6)
-        scale = 0.35 * (E[1] - E[0])
-        for n in range(3):
-            phi = np.asarray(sol["states"][n])
-            ax.axhline(E[n], color=GRID, linewidth=0.8)
-            ax.plot(y[window], E[n] + scale * phi[window] / np.abs(phi[window]).max(),
-                    color=COLORS["schrodinger"], linewidth=1.4, alpha=1.0 - 0.25 * n)
-            ax.text(y[window][-1], E[n], f" E{n}", color=INK_2, fontsize=8, va="center")
-        ax.set_ylim(bottom, top)
+                            _qpcore.GridSpec(1200, 200), 0)
+        y, V, q = (np.asarray(sol[k]) for k in ("y", "potential", "q"))
+        # where the particle actually lives at expiry
+        window = q > 1e-3 * q.max()
+        floor = np.median(V[window])
+        top = floor + 60.0
+        bottom = floor - 60.0
+        top_ax.plot(y[window], np.clip(V[window], bottom, top), color=INK, linewidth=1.6)
+        top_ax.set_ylim(bottom, top)
         i_min = int(np.argmin(np.where(window, V, np.inf)))
         if V[i_min] < bottom:
-            ax.annotate(f"attractive spike\n(depth {V[i_min]:.0f})", xy=(y[i_min], bottom),
-                        xytext=(y[i_min] + 0.15 * (y[window][-1] - y[window][0]), 0.55 * bottom),
-                        color=INK_2, fontsize=7,
-                        arrowprops={"arrowstyle": "->", "color": INK_2, "linewidth": 0.8})
-        ax.set_title(f"{regime} vol: {row.calib_date.date()}, {row.days}d", color=INK, fontsize=9)
-        ax.set_xlabel("y (Lamperti coordinate)", color=INK_2, fontsize=8)
-    axes[0].set_ylabel("V(y) and bound states", color=INK_2, fontsize=9)
-    fig.suptitle("Calibrated potential wells V(y) = (b² + b')/2 with their lowest eigenstates",
+            top_ax.annotate(f"attractive spike\n(depth {V[i_min]:.0f})", xy=(y[i_min], bottom),
+                            xytext=(y[i_min] + 0.2 * np.ptp(y[window]), bottom + 15),
+                            color=INK_2, fontsize=7,
+                            arrowprops={"arrowstyle": "->", "color": INK_2, "linewidth": 0.8})
+        bot_ax.fill_between(y[window], q[window], color=COLORS["schrodinger"], alpha=0.35,
+                            linewidth=0)
+        bot_ax.plot(y[window], q[window], color=COLORS["schrodinger"], linewidth=1.4)
+        bot_ax.set_yticks([])
+        top_ax.set_title(f"{regime} vol: {row.calib_date.date()}, {row.days}d", color=INK,
+                         fontsize=9)
+        bot_ax.set_xlabel("y (Lamperti coordinate)", color=INK_2, fontsize=8)
+    axes[0, 0].set_ylabel("potential V(y)", color=INK_2, fontsize=9)
+    axes[1, 0].set_ylabel("density at expiry", color=INK_2, fontsize=9)
+    fig.suptitle("Calibrated potential wells V(y) = (b² + b')/2 and where the particle ends up",
                  color=INK, fontsize=11, x=0.01, ha="left")
     fig.tight_layout()
     fig.savefig(path, dpi=160)
