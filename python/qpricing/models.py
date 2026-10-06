@@ -132,6 +132,90 @@ class AdHocBlackScholes:
         return np.array([params[0] * u, params[1], params[2]])  # shift ATM vol, keep shape
 
 
+def implied_vols(s: Slice, prices: np.ndarray | None = None) -> np.ndarray:
+    """Black-76 implied vols of `prices` (default: the slice's mids); NaN where none exists."""
+    prices = s.mid if prices is None else prices
+    return np.array([_qpcore.black76_implied_vol(bool(c), s.F, float(K), s.T, float(p), s.df)
+                     for c, K, p in zip(s.is_call, s.strikes, prices, strict=True)])
+
+
+class SVI:
+    """Raw SVI (Gatheral 2004) fitted directly to implied vols: the industry-standard smile.
+
+    Total implied variance w(k) = T v(k), v(k) = a + b (rho (k - m) + sqrt((k - m)^2 + s^2)),
+    k = ln(K/F). It is the same five-parameter formula as the Schrödinger model's local variance,
+    but applied to implied variance, where nothing stops it from implying a negative density.
+    Parameters are stored as (v_min, b, rho, m, s) in implied-variance units, so freezing them
+    overnight freezes the implied-vol smile, as for every other model; box bounds enforce v > 0.
+    Unlike the other models it is fitted on implied vols rather than prices, as practitioners do.
+    """
+
+    name = "svi"
+    n_params = 5
+    # bounds in total-variance units (w = T v), where the fit is well scaled
+    lower = np.array([1e-8, 0.0, -0.999, -0.5, 1e-4])
+    upper = np.array([1.0, 10.0, 0.999, 0.5, 2.0])
+
+    @staticmethod
+    def variance(params: np.ndarray, k: np.ndarray) -> np.ndarray:
+        v_min, b, rho, m, s = params
+        a = v_min - b * s * np.sqrt(1.0 - rho * rho)
+        z = k - m
+        return a + b * (rho * z + np.sqrt(z * z + s * s))
+
+    @staticmethod
+    def _scale(params: np.ndarray, factor: float) -> np.ndarray:
+        """Multiplies the variance level and wing slope (v_min, b) by `factor`."""
+        return np.array([params[0] * factor, params[1] * factor, *params[2:]])
+
+    def _fit_w(self, s: Slice, residual, x0s: list[np.ndarray]) -> np.ndarray:
+        """Least squares in total-variance units; returns implied-variance parameters."""
+        w_atm = s.atm_vol() ** 2 * s.T
+        best = None
+        for x0 in x0s:
+            res = least_squares(lambda pw: residual(self._scale(pw, 1.0 / s.T)),
+                                np.clip(x0, self.lower + 1e-9, self.upper - 1e-9),
+                                bounds=(self.lower, self.upper), method="trf",
+                                x_scale=np.array([w_atm, 0.1 * np.sqrt(s.T), 0.5, 0.05, 0.05]),
+                                max_nfev=2000)
+            if best is None or res.cost < best.cost:
+                best = res
+        return self._scale(best.x, 1.0 / s.T)
+
+    def calibrate(self, s: Slice, warm: np.ndarray | None = None) -> np.ndarray:
+        iv = implied_vols(s)
+        ok = np.isfinite(iv)
+        k, iv = s.k[ok], iv[ok]
+        w_atm = s.atm_vol() ** 2 * s.T
+        starts = [np.array([0.8 * w_atm, 0.1 * np.sqrt(s.T), -0.7, 0.0, 0.05]),
+                  np.array([0.6 * w_atm, 0.3 * np.sqrt(s.T), -0.9, 0.02, 0.02])]
+        if warm is not None:
+            starts.append(self._scale(warm, s.T))
+        return self._fit_w(s, lambda p: np.sqrt(np.maximum(self.variance(p, k), 1e-12)) - iv,
+                           starts)
+
+    def price(self, params: np.ndarray, s: Slice) -> np.ndarray:
+        v = np.maximum(self.variance(params, s.k), 1e-12)
+        return black76(s.is_call, s.F, s.strikes, s.T, np.sqrt(v), s.df)
+
+    @staticmethod
+    def with_level(params: np.ndarray, u: float) -> np.ndarray:
+        return SVI._scale(params, u * u)  # implied vol -> u * implied vol
+
+
+class SVIPrice(SVI):
+    """Raw SVI fitted on prices in index points, the objective every other model uses.
+
+    Separates the effect of the formula from the effect of the implied-vol objective.
+    """
+
+    name = "svi_price"
+
+    def calibrate(self, s: Slice, warm: np.ndarray | None = None) -> np.ndarray:
+        x0 = self._scale(super().calibrate(s, warm), s.T)
+        return self._fit_w(s, lambda p: self.price(p, s) - s.mid, [x0])
+
+
 class Schrodinger:
     """Effective local variance sigma^2(x) = a + b (rho (x - m) + sqrt((x - m)^2 + s^2)).
 
