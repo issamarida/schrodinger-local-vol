@@ -17,6 +17,7 @@ Usage::
 
     uv run qp-backtest                         # full sample, all cores
     uv run qp-backtest --start 2022-07-01 --end 2022-08-31   # development window only
+    uv run qp-backtest --period 2019-08        # the second, out-of-period sample
 """
 
 from __future__ import annotations
@@ -29,11 +30,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from qpricing.data import PROCESSED_DIR, load_dataset
-from qpricing.models import AdHocBlackScholes, BlackScholes, Heston, Schrodinger, Slice, reanchor
+from qpricing.data import PERIODS, load_dataset, processed_path
+from qpricing.models import (
+    SVI,
+    AdHocBlackScholes,
+    BlackScholes,
+    Heston,
+    Schrodinger,
+    Slice,
+    SVIPrice,
+    reanchor,
+)
 
 MIN_QUOTES = 10
-MODEL_TYPES = (BlackScholes, AdHocBlackScholes, Heston, Schrodinger)
+MODEL_TYPES = (BlackScholes, AdHocBlackScholes, SVI, SVIPrice, Heston, Schrodinger)
 _QUOTE_COLS = ["root", "expiration", "days", "k", "strike", "is_call", "F", "bid", "ask", "mid"]
 
 
@@ -117,10 +127,12 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--start", default=None, help="first calibration date (YYYY-MM-DD)")
     ap.add_argument("--end", default=None, help="last calibration date (YYYY-MM-DD)")
     ap.add_argument("--workers", type=int, default=None)
-    ap.add_argument("--out", type=Path, default=PROCESSED_DIR / "backtest.parquet")
+    ap.add_argument("--period", choices=PERIODS, default="2022H2")
+    ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
+    args.out = args.out or processed_path("backtest", args.period)
 
-    data = load_dataset()
+    data = load_dataset(period=args.period)
     days = data.quote_date
     lo = pd.Timestamp(args.start) if args.start else days.min()
     hi = pd.Timestamp(args.end) if args.end else days.max()
