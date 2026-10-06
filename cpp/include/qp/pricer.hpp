@@ -33,4 +33,12 @@ std::vector<std::vector<double>> schrodinger_price_surface(
     const std::vector<std::vector<double>>& strikes,
     const std::vector<std::vector<OptionType>>& types, const GridSpec& grid = {});
 
+/// Prices several expiries under a time-dependent well (see `solve_densities_piecewise`): well j
+/// applies on (ends[j-1], ends[j]]. Free of static arbitrage across strikes and expiries.
+std::vector<std::vector<double>> schrodinger_price_piecewise(
+    const std::vector<EffectiveVolParams>& params, const std::vector<double>& ends,
+    const std::vector<double>& expiries, const std::vector<double>& forwards,
+    const std::vector<double>& dfs, const std::vector<std::vector<double>>& strikes,
+    const std::vector<std::vector<OptionType>>& types, const GridSpec& grid = {});
+
 }  // namespace qp

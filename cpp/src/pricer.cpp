@@ -99,4 +99,24 @@ std::vector<std::vector<double>> schrodinger_price_surface(
     return out;
 }
 
+std::vector<std::vector<double>> schrodinger_price_piecewise(
+    const std::vector<EffectiveVolParams>& params, const std::vector<double>& ends,
+    const std::vector<double>& expiries, const std::vector<double>& forwards,
+    const std::vector<double>& dfs, const std::vector<std::vector<double>>& strikes,
+    const std::vector<std::vector<OptionType>>& types, const GridSpec& grid) {
+    const std::size_t n = expiries.size();
+    if (forwards.size() != n || dfs.size() != n || strikes.size() != n || types.size() != n) {
+        throw std::invalid_argument("schrodinger_price_piecewise: inconsistent slice counts");
+    }
+    if (n == 0) return {};
+    const auto densities = solve_densities_piecewise(params, ends, expiries, grid);
+    std::vector<std::vector<double>> out(n);
+    for (std::size_t e = 0; e < n; ++e) {
+        const auto it = std::find_if(densities.begin(), densities.end(),
+                                     [&](const Density& d) { return d.t == expiries[e]; });
+        out[e] = price_from_density(*it, forwards[e], dfs[e], strikes[e], types[e]);
+    }
+    return out;
+}
+
 }  // namespace qp

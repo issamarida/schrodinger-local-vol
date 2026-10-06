@@ -31,6 +31,9 @@ class SchrodingerProblem {
 public:
     /// Builds a uniform y-grid wide enough for horizons up to t_max.
     SchrodingerProblem(const EffectiveVolParams& params, double t_max, const GridSpec& grid = {});
+    /// Builds the problem on an explicit y-range [y_lo, y_hi] with grid.n_space nodes.
+    SchrodingerProblem(const EffectiveVolParams& params, double t_max, double y_lo, double y_hi,
+                       const GridSpec& grid);
 
     const std::vector<double>& y() const { return y_; }
     const std::vector<double>& x() const { return x_; }          ///< x(y): log forward moneyness
@@ -77,5 +80,19 @@ std::vector<Density> solve_densities(const SchrodingerProblem& problem, std::vec
 
 /// Convenience overload for a single horizon.
 Density solve_density(const SchrodingerProblem& problem, double t);
+
+/// Densities under a time-dependent well: the effective variance is piecewise constant in time,
+/// params[j] applying on (ends[j-1], ends[j]] with ends[-1] = 0.
+///
+/// Each segment has its own Lamperti map and potential. At a breakpoint the density is carried
+/// over in x (it is the same diffusion, so X is continuous) onto a y-grid of the next segment
+/// that covers its support plus `width_sd` standard deviations of the segment's duration.
+/// It is still one positive diffusion: densities are non-negative and the marginals increase in
+/// convex order, so the prices it produces carry neither butterfly nor calendar arbitrage.
+/// `grid.n_time` steps are spread over [0, max(times)].
+std::vector<Density> solve_densities_piecewise(const std::vector<EffectiveVolParams>& params,
+                                               const std::vector<double>& ends,
+                                               std::vector<double> times,
+                                               const GridSpec& grid = {});
 
 }  // namespace qp

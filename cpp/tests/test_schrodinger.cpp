@@ -107,3 +107,78 @@ TEST_CASE("One forward solve prices a whole surface") {
         }
     }
 }
+
+namespace {
+
+std::vector<double> otm_strikes(double F, double sd, std::vector<OptionType>& types) {
+    std::vector<double> strikes;
+    types.clear();
+    for (double z = -4.0; z <= 4.0; z += 0.25) {
+        strikes.push_back(F * std::exp(z * sd));
+        types.push_back(strikes.back() >= F ? OptionType::Call : OptionType::Put);
+    }
+    return strikes;
+}
+
+}  // namespace
+
+TEST_CASE("Piecewise well with one shape everywhere matches the homogeneous solve") {
+    const qp::EffectiveVolParams p{0.015, 0.35, -0.75, 0.03, 0.06};
+    const double F = 3600.0, T = 20.0 / 365;
+    std::vector<OptionType> types;
+    const auto strikes = otm_strikes(F, 0.2 * std::sqrt(T), types);
+    const qp::GridSpec grid{2400, 600, 8.0, 2};
+    const auto ref = qp::schrodinger_price(p, F, T, 1.0, strikes, types, grid);
+    const auto pw = qp::schrodinger_price_piecewise({p, p, p}, {3.0 / 365, 9.0 / 365, T}, {T},
+                                                    {F}, {1.0}, {strikes}, {types}, grid);
+    for (std::size_t k = 0; k < strikes.size(); ++k) {
+        CHECK(pw[0][k] == doctest::Approx(ref[k]).epsilon(1e-6).scale(F));  // within 0.004 pt
+    }
+}
+
+TEST_CASE("Piecewise flat wells give Black-Scholes with the integrated variance") {
+    const double F = 3600.0, T1 = 5.0 / 365, T = 25.0 / 365, s1 = 0.35, s2 = 0.18;
+    const double sigma_eff = std::sqrt((s1 * s1 * T1 + s2 * s2 * (T - T1)) / T);
+    std::vector<OptionType> types;
+    const auto strikes = otm_strikes(F, sigma_eff * std::sqrt(T), types);
+    const auto pw = qp::schrodinger_price_piecewise(
+        {qp::EffectiveVolParams::constant(s1), qp::EffectiveVolParams::constant(s2)}, {T1, T},
+        {T}, {F}, {1.0}, {strikes}, {types}, {2400, 600, 8.0, 2});
+    for (std::size_t k = 0; k < strikes.size(); ++k) {
+        const double ref = qp::black76_price(types[k], F, strikes[k], T, sigma_eff, 1.0);
+        CHECK(std::abs(pw[0][k] - ref) < 0.01);
+    }
+}
+
+TEST_CASE("A time-dependent well has no calendar or butterfly arbitrage") {
+    // Wildly different shapes per segment, including a variance collapse.
+    const std::vector<qp::EffectiveVolParams> wells{
+        {0.04, 1.2, -0.9, 0.0, 0.01}, {0.002, 0.1, 0.5, -0.05, 0.2}, {0.01, 0.8, -0.3, 0.1, 0.05}};
+    const std::vector<double> ends{2.0 / 365, 9.0 / 365, 30.0 / 365};
+    const std::vector<double> expiries{2.0 / 365, 5.0 / 365, 9.0 / 365, 16.0 / 365, 30.0 / 365};
+    const double F = 3600.0;
+    std::vector<double> strikes;
+    std::vector<OptionType> types;
+    for (double K = 3000.0; K <= 4200.0; K += 1.0) {
+        strikes.push_back(K);
+        types.push_back(K >= F ? OptionType::Call : OptionType::Put);
+    }
+    const std::size_t n = expiries.size();
+    const auto prices = qp::schrodinger_price_piecewise(
+        wells, ends, expiries, std::vector<double>(n, F), std::vector<double>(n, 1.0),
+        std::vector<std::vector<double>>(n, strikes), std::vector<std::vector<OptionType>>(n, types));
+    for (std::size_t e = 0; e < n; ++e) {
+        std::vector<double> call(strikes.size());
+        for (std::size_t k = 0; k < strikes.size(); ++k) {
+            call[k] = prices[e][k] + (types[k] == OptionType::Put ? F - strikes[k] : 0.0);
+        }
+        for (std::size_t k = 1; k + 1 < strikes.size(); ++k) {
+            CHECK(call[k - 1] - 2.0 * call[k] + call[k + 1] >= -1e-7 * F);
+        }
+        if (e > 0) {
+            for (std::size_t k = 0; k < strikes.size(); ++k) {
+                CHECK(prices[e][k] >= prices[e - 1][k] - 1e-7 * F);
+            }
+        }
+    }
+}
