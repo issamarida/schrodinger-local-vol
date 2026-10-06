@@ -6,6 +6,7 @@ import pytest
 from qpricing.arbitrage import butterfly_stats, market_butterflies
 from qpricing.hedging import black_greeks, frozen_delta, local_vol_delta
 from qpricing.models import SVI, BlackScholes, Schrodinger, Slice, SVIPrice, black76
+from qpricing.surface import PiecewiseWell, SharedWell, calendar_violations
 
 
 def _slice(days=10, F=3600.0, lo=3150.0, hi=3950.0):
@@ -61,3 +62,34 @@ def test_deltas():
     # With a negative skew the local-vol delta is below the sticky-smile delta.
     skew = np.array([0.02, 1.0, -0.7, 0.0, 0.05])
     assert np.all(local_vol_delta(skew, s, m) < frozen_delta(m, skew, s) + 1e-9)
+
+
+def _surface(thetas_days):
+    slices = []
+    for days in (3, 8, 15, 29):
+        s = _slice(days)
+        slices.append(s)
+    pw = PiecewiseWell()
+    state = {"thetas": thetas_days, "ends": [s.T for s in slices], "n_params": 20}
+    for s, p in zip(slices, pw.price(state, slices), strict=True):
+        s.mid = p
+    return slices, pw, state
+
+
+def test_piecewise_well_recovers_a_time_dependent_surface_without_calendar_arbitrage():
+    # the wells on both sides of expiry 2 are equal, so leaving expiry 2 out loses nothing
+    truth = [np.array([0.03, 1.5, -0.8, 0.0, 0.02]), np.array([0.02, 0.8, -0.6, 0.01, 0.05]),
+             np.array([0.015, 0.5, -0.5, 0.02, 0.08]), np.array([0.015, 0.5, -0.5, 0.02, 0.08])]
+    slices, pw, state = _surface(truth)
+    fitted = pw.fit(slices)
+    for s, p in zip(slices, pw.price(fitted, slices), strict=True):
+        assert np.max(np.abs(p - s.mid)) < 0.05
+    assert calendar_violations(pw, fitted, slices) == 0
+    # leaving out an expiry: the well runs through the gap
+    assert np.max(np.abs(pw.loo_price(fitted, slices, 2) - slices[2].mid)) < 0.05
+
+
+def test_clock_is_increasing_and_homogeneous_clock_is_calendar_time():
+    T = np.array([2, 5, 9, 30]) / 365
+    assert np.all(np.diff(SharedWell(True).taus(np.array([-3.0, 2.0, -1.0, 0.5]), T)) > 0)
+    np.testing.assert_array_equal(SharedWell(False).taus(np.array([]), T), T)
