@@ -64,7 +64,7 @@ Regimes are terciles of the 30-day ATM implied vol computed from the data: low <
 | 15-30d | 116,619 | 0.500 | 0.879 | 0.490 | 0.772 | 0.508 | 4.019 | **+43.1%** [+34.2, +50.9] | **-2.1%** [-7.7, +3.2] | **+35.3%** [+30.6, +39.4] | **+1.6%** [+0.7, +2.5] | **+87.6%** [+86.5, +88.5] |
 | 31-45d | 56,489 | 0.614 | 0.914 | 0.594 | 0.997 | 0.628 | 6.381 | **+32.8%** [+22.1, +42.0] | **-3.5%** [-9.1, +1.5] | **+38.4%** [+34.1, +42.0] | **+2.2%** [+1.2, +3.1] | **+90.4%** [+89.5, +91.1] |
 
-## Static arbitrage (2022 holdout (Sep-Dec))
+## Static arbitrage: 2022 holdout, Sep-Dec
 
 Each calibrated slice is priced on a 1-point strike grid. A butterfly C(K-1) - 2C(K) + C(K+1) below -1e-10 F is a negative density. *Quoted*: between the lowest and highest calibrated strike. *Wings*: that range widened by half its width on each side in log-moneyness. Negative mass is the probability the smile assigns below zero, median over the violating slices.
 
@@ -81,7 +81,7 @@ Market check, same slices: 0.05% of 2,019 slices contain a butterfly that is sti
 
 Calendar arbitrage: undiscounted OTM prices normalised by the forward must not fall with maturity at fixed k = ln(K/F); checked on the overlap of the quoted ranges of each pair of adjacent expiries, tolerance 1e-7 F (0.0004 index points). The surface models below are checked the same way.
 
-## Delta hedging (2022 holdout (Sep-Dec))
+## Delta hedging: 2022 holdout, Sep-Dec
 
 Every OTM option in the calibration universe that is still quoted the next day is hedged once with futures on its expiry's forward: error = dV - delta dF, mids and parity forwards, 286,215 option-days over 83 days. Gain = 1 - SSE(delta) / SSE(Black-Scholes), Hull & White (2017)'s measure, with 95% day-block bootstrap intervals. *Mean day* weighs every day equally (geometric mean of the daily SSE ratio), so a few large moves cannot dominate. Minimum-variance coefficients are fitted on Jul-Aug 2022 only. *Ex-CPI* drops the four hedges held over a CPI release (13 Sep, 13 Oct, 10 Nov, 13 Dec), two of which carry half of the squared error.
 
@@ -109,7 +109,7 @@ What the market paid for. For each |delta| bucket: the median adjustment each mo
 | call | 10-25% | +0.025 | -0.023 | +0.024 | -0.007 |
 | call | 25-50% | +0.031 | -0.041 | +0.043 | -0.005 |
 
-## One model for the whole surface (2022 holdout (Sep-Dec))
+## One model for the whole surface: 2022 holdout, Sep-Dec
 
 Every expiry of a day (2-45 days, the per-slice universe) from one diffusion, calibrated per day on prices. Per-slice Schrödinger, 5 parameters per expiry: in-sample MAE 0.261 on the same quotes.
 

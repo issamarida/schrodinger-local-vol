@@ -40,7 +40,7 @@ Regimes are terciles of the 30-day ATM implied vol computed from the data: low <
 | 15-30d | 19,239 | 1.030 | 0.688 | 0.544 | 1.425 | 1.095 | 4.692 | **-49.7%** [-180.7, +10.6] | **-89.2%** [-145.8, -40.0] | **+27.7%** [+16.1, +38.4] | **+6.0%** [+1.1, +10.4] | **+78.0%** [+71.3, +84.4] |
 | 31-45d | 13,890 | 1.169 | 0.743 | 0.670 | 1.429 | 1.244 | 6.308 | **-57.4%** [-204.2, +15.7] | **-74.6%** [-112.7, -31.5] | **+18.2%** [+9.0, +29.9] | **+6.0%** [+1.2, +10.8] | **+81.5%** [+75.4, +87.1] |
 
-## Static arbitrage (2019-08)
+## Static arbitrage: 2019-08
 
 Each calibrated slice is priced on a 1-point strike grid. A butterfly C(K-1) - 2C(K) + C(K+1) below -1e-10 F is a negative density. *Quoted*: between the lowest and highest calibrated strike. *Wings*: that range widened by half its width on each side in log-moneyness. Negative mass is the probability the smile assigns below zero, median over the violating slices.
 
@@ -57,7 +57,7 @@ Market check, same slices: 0.00% of 394 slices contain a butterfly that is still
 
 Calendar arbitrage: undiscounted OTM prices normalised by the forward must not fall with maturity at fixed k = ln(K/F); checked on the overlap of the quoted ranges of each pair of adjacent expiries, tolerance 1e-7 F (0.0004 index points). The surface models below are checked the same way.
 
-## Delta hedging (2019-08)
+## Delta hedging: 2019-08
 
 Every OTM option in the calibration universe that is still quoted the next day is hedged once with futures on its expiry's forward: error = dV - delta dF, mids and parity forwards, 46,724 option-days over 21 days. Gain = 1 - SSE(delta) / SSE(Black-Scholes), Hull & White (2017)'s measure, with 95% day-block bootstrap intervals. *Mean day* weighs every day equally (geometric mean of the daily SSE ratio), so a few large moves cannot dominate. Minimum-variance coefficients are fitted on Jul-Aug 2022 only.
 
@@ -85,7 +85,7 @@ What the market paid for. For each |delta| bucket: the median adjustment each mo
 | call | 10-25% | -0.065 | -0.060 | +0.068 | -0.007 |
 | call | 25-50% | -0.103 | -0.109 | +0.130 | -0.005 |
 
-## One model for the whole surface (2019-08)
+## One model for the whole surface: 2019-08
 
 Every expiry of a day (2-45 days, the per-slice universe) from one diffusion, calibrated per day on prices. Per-slice Schrödinger, 5 parameters per expiry: in-sample MAE 0.152 on the same quotes.
 
