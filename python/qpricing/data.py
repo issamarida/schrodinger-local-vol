@@ -28,7 +28,12 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
 RAW_DIR = ROOT / "data" / "raw" / "day_by_date"
+RAW_DIR_2019 = ROOT / "data" / "raw_2019_08"
 PROCESSED_DIR = ROOT / "data" / "processed"
+
+# Test periods. "2022H2" is the main sample (development Jul-Aug, holdout Sep-Dec); "2019-08" is a
+# second, later-added out-of-period test from another vendor (scripts/fetch_data_2019.sh).
+PERIODS = ("2022H2", "2019-08")
 
 RATE_TENORS = np.array([1 / 12, 0.25, 1.0, 2.0, 5.0, 10.0, 30.0])
 _COLUMNS = [
@@ -80,11 +85,41 @@ def implied_forwards(day: pd.DataFrame, n_strikes: int = 5) -> pd.Series:
     return nearest.groupby(["root", "expiration"]).F.median()
 
 
-def load_day(path: Path, curves: dict[str, np.ndarray]) -> pd.DataFrame:
-    """All SPX/SPXW quotes of one file with T, r, discount factor and implied forward attached."""
+def load_rate_curves_2019(raw_dir: Path = RAW_DIR_2019) -> dict[str, np.ndarray]:
+    """US Treasury par curves (decimal) for 2019, on the same tenors as the 2022 manifest."""
+    t = pd.read_csv(raw_dir / "treasury_par_curve_2019.csv", parse_dates=["Date"])
+    cols = ["1 Mo", "3 Mo", "1 Yr", "2 Yr", "5 Yr", "10 Yr", "30 Yr"]
+    return {d.strftime("%Y-%m-%d"): row[cols].to_numpy(float) / 100.0
+            for d, row in t.set_index("Date").iterrows()}
+
+
+def _read_hod_2019(path: Path) -> pd.DataFrame:
+    """One day of the historicaloptiondata.com sample, renamed to the 2022 vendor's columns.
+
+    SPX (monthly) contracts are AM-settled, SPXW contracts PM-settled.
+    """
+    raw = pd.read_csv(path)
+    return pd.DataFrame({
+        "underlying": raw.UnderlyingSymbol, "root": raw.UnderlyingSymbol,
+        "expiration": raw.Expiration, "type": raw.Type, "strike": raw.Strike.astype(float),
+        "quote_date": raw.DataDate, "bid": raw.Bid, "ask": raw.Ask, "volume": raw.Volume,
+        "open_interest": raw.OpenInterest, "underlying_close": raw.UnderlyingPrice,
+        "settlement_time": np.where(raw.UnderlyingSymbol == "SPX", "AM", "PM"), "iv": raw.IV,
+    })
+
+
+def _read_hd_2022(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, usecols=_COLUMNS)
     df = df[df.underlying.isin(["SPX", "SPXW"])].copy()
     df["root"] = df.contract.str[:-15]
+    return df
+
+
+def load_day(path: Path, curves: dict[str, np.ndarray]) -> pd.DataFrame:
+    """All SPX/SPXW quotes of one file with T, r, discount factor and implied forward attached."""
+    reader = _read_hod_2019 if path.name.startswith("L2_options_") else _read_hd_2022
+    df = reader(path)
+    df = df[df.underlying.isin(["SPX", "SPXW"])].copy()
     df["quote_date"] = pd.to_datetime(df.quote_date)
     df["expiration"] = pd.to_datetime(df.expiration)
     days = (df.expiration - df.quote_date).dt.days - (df.settlement_time == "AM").astype(int)
@@ -128,14 +163,31 @@ def _load_filtered(path: Path, curves: dict[str, np.ndarray],
     return apply_filter(load_day(path, curves), quote_filter)
 
 
-def build_dataset(raw_dir: Path = RAW_DIR, out: Path | None = None,
-                  quote_filter: QuoteFilter = QuoteFilter()) -> pd.DataFrame:
-    """Processes every daily file into one filtered table (cached as parquet)."""
-    out = out or PROCESSED_DIR / "spx_quotes.parquet"
-    files = sorted(raw_dir.glob("*_options.csv"))
+def processed_path(name: str, period: str = "2022H2") -> Path:
+    """data/processed/<name>.parquet for 2022H2, data/processed/<period>/<name>.parquet else."""
+    base = PROCESSED_DIR if period == "2022H2" else PROCESSED_DIR / period
+    return base / f"{name}.parquet"
+
+
+def _daily_files(period: str) -> tuple[list[Path], dict[str, np.ndarray]]:
+    if period == "2022H2":
+        files, script = sorted(RAW_DIR.glob("*_options.csv")), "scripts/fetch_data.sh"
+        curves = load_rate_curves(RAW_DIR) if files else {}
+    elif period == "2019-08":
+        files, script = sorted(RAW_DIR_2019.glob("L2_options_*.csv")), "scripts/fetch_data_2019.sh"
+        curves = load_rate_curves_2019() if files else {}
+    else:
+        raise ValueError(f"unknown period {period!r}; expected one of {PERIODS}")
     if not files:
-        raise FileNotFoundError(f"no daily files in {raw_dir}; run scripts/fetch_data.sh first")
-    curves = load_rate_curves(raw_dir)
+        raise FileNotFoundError(f"no daily files for {period}; run {script} first")
+    return files, curves
+
+
+def build_dataset(period: str = "2022H2", out: Path | None = None,
+                  quote_filter: QuoteFilter = QuoteFilter()) -> pd.DataFrame:
+    """Processes every daily file of a period into one filtered table (cached as parquet)."""
+    out = out or processed_path("spx_quotes", period)
+    files, curves = _daily_files(period)
     with ProcessPoolExecutor() as pool:
         frames = list(pool.map(partial(_load_filtered, curves=curves, quote_filter=quote_filter),
                                files))
@@ -145,8 +197,34 @@ def build_dataset(raw_dir: Path = RAW_DIR, out: Path | None = None,
     return data
 
 
-def load_dataset(path: Path | None = None) -> pd.DataFrame:
-    path = path or PROCESSED_DIR / "spx_quotes.parquet"
+def load_dataset(path: Path | None = None, period: str = "2022H2") -> pd.DataFrame:
+    path = path or processed_path("spx_quotes", period)
     if not path.exists():
-        return build_dataset(out=path)
+        return build_dataset(period, out=path)
     return pd.read_parquet(path)
+
+
+_ALL_QUOTE_COLS = ["quote_date", "root", "expiration", "strike", "is_call", "F", "mid"]
+
+
+def _load_two_sided(path: Path, curves: dict[str, np.ndarray], max_days: float) -> pd.DataFrame:
+    df = load_day(path, curves)
+    ok = (df.bid > 0) & (df.ask > df.bid) & (df.days <= max_days)
+    return df.loc[ok, _ALL_QUOTE_COLS].reset_index(drop=True)
+
+
+def load_all_quotes(period: str = "2022H2", max_days: float = 45.0) -> pd.DataFrame:
+    """Every two-sided quote (calls and puts, any moneyness) up to `max_days`, unfiltered.
+
+    The hedging test needs each option's mid on the next day even after it moved into the money.
+    """
+    path = processed_path("spx_all_quotes", period)
+    if path.exists():
+        return pd.read_parquet(path)
+    files, curves = _daily_files(period)
+    with ProcessPoolExecutor() as pool:
+        frames = list(pool.map(partial(_load_two_sided, curves=curves, max_days=max_days), files))
+    data = pd.concat(frames, ignore_index=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data.to_parquet(path, index=False)
+    return data
