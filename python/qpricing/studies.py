@@ -53,7 +53,7 @@ def _scope(df: pd.DataFrame, period: str, col: str = "quote_date") -> pd.DataFra
 
 
 def _where(period: str) -> str:
-    return "2022 holdout (Sep-Dec)" if period == "2022H2" else period
+    return "2022 holdout, Sep-Dec" if period == "2022H2" else period
 
 
 def _boot_ratio(daily: pd.DataFrame, num: str, den: str, reps: int = 2000,
@@ -82,7 +82,7 @@ def arbitrage_section(period: str) -> list[str]:
     cals = _scope(pd.read_parquet(cpath), period)
     m = flies[flies.model == "market"]
     lines = [
-        f"## Static arbitrage ({_where(period)})", "",
+        f"## Static arbitrage: {_where(period)}", "",
         "Each calibrated slice is priced on a 1-point strike grid. A butterfly "
         "C(K-1) - 2C(K) + C(K+1) below -1e-10 F is a negative density. *Quoted*: between the "
         "lowest and highest calibrated strike. *Wings*: that range widened by half its width on "
@@ -201,7 +201,6 @@ def _load_hedging(period: str) -> pd.DataFrame | None:
     if not path.exists():
         return None
     panel = _scope(pd.read_parquet(path), period)
-    panel = panel[panel.quote_date > pd.Timestamp("2022-08-31")] if period == "2022H2" else panel
     return panel.dropna(subset=[f"delta_{m}" for m in DELTAS])
 
 
@@ -213,7 +212,7 @@ def hedging_section(period: str) -> list[str]:
     ex = (hedging_table(panel[~panel.quote_date.isin(CPI_EVE_2022)]).set_index("delta")
           if period == "2022H2" else None)
     lines = [
-        f"## Delta hedging ({_where(period)})", "",
+        f"## Delta hedging: {_where(period)}", "",
         "Every OTM option in the calibration universe that is still quoted the next day is "
         "hedged once with futures on its expiry's forward: error = dV - delta dF, mids and "
         f"parity forwards, {t.attrs['n']:,} option-days over {t.attrs['days']} days. "
@@ -305,12 +304,13 @@ def surface_section(period: str) -> list[str]:
     fits = _scope(pd.read_parquet(fpath), period)
     days = _scope(pd.read_parquet(processed_path("surface_days", period)), period)
     loo = _scope(pd.read_parquet(processed_path("surface_loo", period)), period)
-    per_slice_mae = fits.groupby("model").per_slice_sae.sum() / fits.groupby("model").n.sum()
+    ref = fits[fits.model == "surface_piecewise"]  # every variant is scored on the same quotes
+    per_slice_mae = ref.per_slice_sae.sum() / ref.n.sum()
     lines = [
-        f"## One model for the whole surface ({_where(period)})", "",
+        f"## One model for the whole surface: {_where(period)}", "",
         "Every expiry of a day (2-45 days, the per-slice universe) from one diffusion, "
         "calibrated per day on prices. Per-slice Schrödinger, 5 parameters per expiry: in-sample "
-        f"MAE {per_slice_mae.iloc[0]:.3f} on the same quotes.", "",
+        f"MAE {per_slice_mae:.3f} on the same quotes.", "",
         "| model | parameters per day (median) | in-sample MAE | calendar arbitrage "
         "| seconds per day (median) |",
         "|---|---:|---:|---:|---:|",

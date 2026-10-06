@@ -1,11 +1,11 @@
-# quantum-pricing
+# schrodinger-local-vol
 
 I price SPX options by solving a Schrödinger equation. A stochastic-volatility smile is squeezed
 down to one dimension, turned into a particle in a potential well and evolved in imaginary time
 with a C++ Crank-Nicolson solver. Then I test it on 1.2 million real SPX quotes from 2022 and a
 second sample from August 2019, against the models people actually use.
 
-[![CI](https://github.com/issamarida/quantum-pricing/actions/workflows/ci.yml/badge.svg)](https://github.com/issamarida/quantum-pricing/actions/workflows/ci.yml)
+[![CI](https://github.com/issamarida/schrodinger-local-vol/actions/workflows/ci.yml/badge.svg)](https://github.com/issamarida/schrodinger-local-vol/actions/workflows/ci.yml)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 
@@ -19,16 +19,23 @@ What it does have is structure. It is a diffusion with positive local variance, 
 can't go negative. Across 2,019 holdout slices it produced zero butterfly arbitrage. SVI fitted
 to the same prices produced it on 36% of them once you extrapolate past the quoted strikes.
 
-And because it's a diffusion, one well can carry the whole surface. A time-dependent well fits
-every expiry of a day within 3% of separate per-slice fits, with zero calendar arbitrage where
-per-slice fitting has it on a third of expiry pairs. It also prices an expiry it never saw
-better than interpolating SVI or ad-hoc smiles.
+And because it's a diffusion, one well can carry the whole surface. On the 2022 holdout a
+time-dependent well fits every expiry of a day within 3% of separate per-slice fits (in 2019 the
+gap is bigger), with zero calendar arbitrage where per-slice fitting has it on a third of expiry
+pairs. It also prices an expiry it never saw better than interpolating SVI or ad-hoc smiles.
 
 Its delta is a local-vol delta, which turned out to be a bet on how the smile moves. It lost
 that bet in late 2022 (28% more hedging error than Black-Scholes) and won it in August 2019 (60%
-less).
+less, though 22 days leave a wide interval).
 
-That's the project in five paragraphs. The rest is detail.
+That's the project in four paragraphs. The rest is detail.
+
+| question | 2022 holdout | August 2019 |
+|---|---|---|
+| Better next-day prices than the practitioner smile? | tie (0.467 vs 0.450) | no (0.973 vs 0.473) |
+| Butterfly arbitrage, mine vs SVI fitted to prices | 0% vs 36% of slices | 0% vs 23% |
+| One process for every expiry, error vs per-slice fits | +3%, zero calendar arbitrage | +59%, zero calendar arbitrage |
+| Local-vol delta vs Black-Scholes delta | 28% worse | 60% better |
 
 ![Implied density with negative probability](results/figures/negative_density.png)
 
@@ -42,7 +49,7 @@ Holdout, Sep–Dec 2022 (220,719 quotes on the re-marked test):
 
 | test | Schrödinger | Ad-hoc BS | SVI (price fit) | SVI (iv fit) | Heston | Black-Scholes |
 |---|---:|---:|---:|---:|---:|---:|
-| next day, ATM vol re-marked | **0.467** | 0.450 | 0.474 | 0.665 | 0.782 | 2.935 |
+| next day, ATM vol re-marked | 0.467 | **0.450** | 0.474 | 0.665 | 0.782 | 2.935 |
 | next day, everything frozen | **1.845** | 1.866 | 1.849 | 1.849 | 1.929 | 3.360 |
 | in-sample fit | **0.232** | 0.288 | 0.251 | 0.505 | 0.318 | 2.841 |
 
@@ -54,8 +61,10 @@ deterministic-vol models struggle to beat the ad-hoc smile out of sample. Still 
 
 SVI here uses the same five-parameter formula as my local variance. The only difference is that
 SVI applies it to implied variance. I fit it two ways. Fitting implied vols directly is what
-desks do and it wins on implied-vol error by a mile, but it spends its accuracy on the far wings
-and loses on price (0.665). Fitting prices, like every other model here, gets it to 0.474.
+desks do. In-sample it gets the implied-vol RMSE down to 0.45 vol points against 2.3 for the
+Schrödinger model, but it buys that in the far wings: its median error (0.27 vol points) is
+twice the Schrödinger model's (0.13), and on price it loses (0.665). Fitting prices, like every
+other model here, gets it to 0.474.
 
 ![MAE by regime](results/figures/mae_by_regime.png)
 
@@ -74,6 +83,12 @@ strike the model was fitted on. *Wings* means that range widened by half on each
 | SVI, fit to implied vols | 1.5% | 3.7% | 23% |
 | Heston | 0.1% | 0.2% | 13% |
 | Black-Scholes | 0% | 0% | 4% |
+
+Is the zero real or did the solver hide something? The density is clipped at zero after each
+solve as a safety net. I recompiled the solver without the clip and ran 400 random calibrated
+holdout wells through it at both grid sizes: not one grid node went negative. The positivity
+comes from the PDE and a scheme that respects it (implicit start-up steps damp the oscillations
+Crank-Nicolson would otherwise leave), not from the clip.
 
 Two things I didn't expect.
 
@@ -124,7 +139,12 @@ unconstrained per-slice fits. The test that matters is pricing an expiry the mod
 fitted to. The well just runs the diffusion through the gap. The practitioner approach
 interpolates the neighbouring smiles linearly in total implied variance. The well beats every
 interpolated smile. Against the best of them, price-fitted SVI, it's 2.5% [+1.8, +3.1] better.
-In August 2019 that margin is 10%, though over 22 days it isn't significant.
+In August 2019 that margin is 10%, though over 22 days it isn't significant. The 2019
+in-sample fit is weaker than in 2022, 0.242 against 0.152 for per-slice fits, and the gap grows
+with maturity: 0.110 vs 0.104 under a week, 0.313 vs 0.178 at 31-45 days. That's the signature
+of a bootstrap, where each segment inherits the errors of the ones before it. 2019 had 18
+expiries a day against 24 in 2022, so each segment had to cover more ground. A joint fit of all
+segments should help, at a higher cost.
 
 ## Hedging
 
@@ -179,8 +199,16 @@ Full derivation in [`docs/theory.md`](docs/theory.md).
 
 ![Calibrated potential wells](results/figures/potential_wells.png)
 
-On SPX the wells have a steep wall on the put side, which is the skew, and a sharp attractive
-spike where the local variance bottoms out. That spike is the kink in the short-dated smile.
+Calibrated SPX wells are mostly flat where the particle lives, with a steep wall on the put side
+(the skew) and a sharp attractive spike where the local variance bottoms out. That spike is the
+kink in the short-dated smile. The density at expiry, below each well, is close to Gaussian in
+y: the Lamperti map has already absorbed most of the smile.
+
+A caveat a physicist would raise: the spectrum is discrete only in principle. With ρ close to −1
+the call side of the well is nearly flat, the level spacing is about 0.2 per year and
+T·(E₁ − E₀) is around 0.005 at 8 days. An eigen-expansion would need hundreds of states, so
+the PDE does the pricing. [`docs/theory.md`](docs/theory.md#4-why-the-smile-is-a-potential-well)
+has the numbers.
 
 ## Engineering
 
@@ -190,7 +218,7 @@ C++20 core in `cpp/`, no runtime dependencies:
 |---|---|
 | `schrodinger.cpp` | Builds the potential (RK4 Lamperti inversion, closed-form gauge) and propagates ψ with Crank-Nicolson plus Rannacher start-up. H is factorised once per segment, so each step is one O(N) sweep. The time-dependent well carries the density across breakpoints in x onto each segment's own grid. |
 | `pricer.cpp` | Density to prices with prefix sums, exact kink handling and an O(h²) martingale correction. One solve prices every strike and every maturity. |
-| `spectral.cpp` | Bound states of the well by Sturm bisection and inverse iteration. |
+| `spectral.cpp` | Bound states by Sturm bisection and inverse iteration, exact on the harmonic oscillator. `qp_price --states` computes them on a domain wide enough to be the well's own and says whether the expansion is usable at that maturity. |
 | `black76.cpp` | Black-76 and a safeguarded Newton implied-vol solver. |
 | `bindings/` | pybind11, GIL released while pricing. |
 
@@ -276,7 +304,8 @@ uv run qp-arbitrage              # butterfly and calendar checks
 uv run qp-hedge                  # delta-hedging backtest
 uv run qp-surface --start 2022-09-01   # whole-surface fits on the holdout, ~1 h on 32 cores
 uv run qp-report                 # results/RESULTS.md and figures
-# add --period 2019-08 to any of these for the second sample (results go to results/2019-08/)
+# add --period 2019-08 to any of these for the second sample (drop --start); output goes to
+# results/2019-08/
 
 cmake -S . -B build && cmake --build build -j && ctest --test-dir build
 ```
@@ -285,7 +314,7 @@ cmake -S . -B build && cmake --build build -j && ctest --test-dir build
 import qpricing as qp
 well = qp.EffectiveVolParams(a=0.012, b=0.45, rho=-0.8, m=0.02, s=0.05)
 qp.schrodinger_price(well, F=3577, T=9/365, df=0.999, strikes=[3300, 3700], is_call=[False, True])
-sol = qp.solve(well, T=9/365, n_states=3)   # grid, potential V(y), density, bound states
+sol = qp.solve(well, T=9/365)   # grid, Lamperti map, potential V(y), density at T
 ```
 
 ## Layout
@@ -309,6 +338,10 @@ docs/theory.md            the derivation
   slices, which puts a narrow spike in V. Numerically harmless, possibly bad for prediction.
 * **Two short samples.** Six months of 2022 and one month of 2019. Hedging results in particular
   swing with the regime, and 22 days is thin.
+* **Bootstrapped surface.** The time-dependent well is fitted one segment at a time, so errors
+  accumulate towards the long end. A joint fit is the next step.
+* **The spectrum is decorative at these maturities.** The eigen-expansion is correct but needs
+  hundreds of states for short-dated SPX wells. The PDE does all the pricing.
 * **No costs.** End-of-day mids, no transaction costs, daily rebalancing only.
 
 ## Data and licence
