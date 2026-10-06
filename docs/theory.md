@@ -118,6 +118,52 @@ the expansion reproduces the PDE prices.
   solver. The two agree to $5\times10^{-4}$ index points. When the backward grid was too
   coarse, refining it moved its answer toward the Schrödinger value.
 
+## 6. No static arbitrage, by construction
+
+The model is a diffusion with strictly positive local variance $\sigma^2(x) \ge v_{\min} > 0$.
+
+* **Butterflies.** The density solves a Fokker-Planck equation with a positive diffusion
+  coefficient, so it stays non-negative (maximum principle). In the solver $q = e^{B}\psi$ and the
+  pricer integrates payoffs against a non-negative discrete density, so the discrete call price is
+  convex in $K$ as well. An implied-vol parameterisation (quadratic, SVI) has no such guarantee:
+  Durrleman's condition
+  $g(k) = (1 - \tfrac{k w'}{2w})^2 - \tfrac{w'^2}{4}(\tfrac1w + \tfrac14) + \tfrac{w''}{2} \ge 0$
+  has to be checked or imposed.
+* **Calendars.** For one martingale $e^{X_t}$, $\mathbb{E}[(e^{X_t} - e^k)^+]$ is non-decreasing
+  in $t$ (Jensen). Fitting each expiry separately breaks this: two slices are two unrelated
+  processes. One process for every expiry restores it.
+
+## 7. One well for every expiry
+
+**Time change.** Let $\sigma(x, t) = \lambda(t)\sigma(x)$. With $\tau(t) = \int_0^t \lambda^2 ds$,
+$X_t = \tilde X_{\tau(t)}$ where $\tilde X$ is the time-homogeneous diffusion. The potential is
+unchanged; only the imaginary time at which each expiry reads the wavefunction moves:
+$T_i \mapsto \tau_i$. Parameterising $\tau_i = \sum_{j \le i}(T_j - T_{j-1})e^{u_j}$ keeps $\tau$
+increasing, so one forward solve prices the whole surface without calendar arbitrage for any
+$(u_j)$. With $u \equiv 0$ the surface has five parameters in total.
+
+**Time-dependent well.** Let $\sigma^2(x, t) = \sigma_j^2(x)$ on $(T_{j-1}, T_j]$. Each segment
+has its own Lamperti map $y_j(x)$, potential $V_j$ and gauge $B_j$. At $T_j$ the process $X$ is
+continuous, so the density in $x$, $p(x) = q_j(y_j(x))/\sigma_j(x)$, carries over:
+$q_{j+1}(y) = p(x_{j+1}(y))\,\sigma_{j+1}(x_{j+1}(y))$, interpolated linearly in $x$ onto a new
+grid covering the incoming support plus $8\sqrt{T_{j+1} - T_j}$. The wells are fitted one expiry
+at a time with the earlier ones fixed (bootstrapping, as for a Dupire term structure). It is
+still one positive diffusion, so both guarantees above hold.
+
+## 8. Deltas and smile dynamics
+
+A model's delta is a statement about how the smile moves with the index.
+
+* Black-Scholes at the option's own implied vol: $\sigma(K)$ fixed (*sticky strike*).
+* Parametric smiles in $k = \ln(K/F)$ with frozen parameters (ad-hoc, SVI, Heston): the smile
+  moves with the forward (*sticky moneyness*), $\partial\sigma_{\rm imp}/\partial F|_K =
+  -\partial\sigma_{\rm imp}/\partial K$.
+* Local vol: $\sigma(x)$ is a fixed function of the *absolute* forward level, so a bump
+  $F \to F(1+\epsilon)$ shifts the SVI centre $m \to m - \ln(1+\epsilon)$. To first order
+  $\partial\sigma_{\rm imp}/\partial F|_K \approx +\partial\sigma_{\rm imp}/\partial K$: the
+  opposite of sticky moneyness, with sticky strike in between. With a negative skew the
+  local-vol delta is the lowest of the three.
+
 ## References
 
 * I. Gyöngy (1986), *Mimicking the one-dimensional marginal distributions of processes having an
@@ -129,3 +175,7 @@ the expansion reproduces the PDE prices.
 * B. Dumas, J. Fleming, R. Whaley (1998), *Implied volatility functions: empirical tests*,
   J. Finance 53 (the ad-hoc Black-Scholes benchmark).
 * S. Heston (1993), *A closed-form solution for options with stochastic volatility*, RFS 6.
+* B. Dupire (1994), *Pricing with a smile*, Risk 7.
+* J. Gatheral, A. Jacquier (2014), *Arbitrage-free SVI volatility surfaces*, Quant. Finance 14.
+* E. Derman (1999), *Regimes of volatility*, Risk 12 (sticky strike, sticky delta, local vol).
+* J. Hull, A. White (2017), *Optimal delta hedging for options*, J. Banking & Finance 82.
